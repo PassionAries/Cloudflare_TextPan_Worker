@@ -292,8 +292,8 @@ mark.search-highlight { background: var(--yellow); color: #000; border-radius: 2
 
 <script>
 // ==================== 配置 ====================
-// 在 Cloudflare Turnstile 后台获取 Site Key，留空则不启用
-const TURNSTILE_SITE_KEY = '0x4AAAAAAD_IUr45V1SEgvXL';
+// 由 Worker 环境变量 TURNSTILE_SITE_KEY 动态注入，留空则不启用
+let TURNSTILE_SITE_KEY = '';
 
 // ==================== 全局状态 ====================
 let fileTreeData = [];
@@ -307,7 +307,7 @@ let contentSearchLastQuery = '';
 let allFoldersExpanded = false;
 
 // ==================== 初始化 ====================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('uuid-input').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
   const textarea = document.getElementById('editor-textarea');
@@ -320,7 +320,6 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Enter') document.getElementById('modal-new-submit').click();
   });
 
-  // 内容搜索框回车跳转
   document.getElementById('content-search-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -331,6 +330,13 @@ document.addEventListener('DOMContentLoaded', () => {
       else { searchNext(); }
     }
   });
+
+  // 从 Worker 获取 Turnstile 站点密钥
+  try {
+    const res = await fetch('?action=get_config');
+    const cfg = await res.json();
+    if (cfg.turnstile_site_key) TURNSTILE_SITE_KEY = cfg.turnstile_site_key;
+  } catch (_) { /* 获取失败则使用默认空值 */ }
 
   initTurnstile();
   checkLoginStatus();
