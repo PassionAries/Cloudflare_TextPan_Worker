@@ -7,7 +7,7 @@
 ![Cloudflare Workers](https://img.shields.io/badge/Platform-Cloudflare%20Workers-F38020?style=flat-square&logo=cloudflare)
 ## 核心特性
 
-- 文件管理 — 创建、编辑、重命名、移动、删除文件和文件夹，右键菜单快捷操作
+- 文件管理 — 创建、编辑、重命名、移动、删除文件和文件夹
 - 在线编辑 — 内置代码编辑器，支持语法高亮风格的等宽字体，Ctrl+F 内容搜索
 - 文件分享 — 生成分享链接 + 二维码，可自定义 Token，支持访客只读访问
 - 历史版本 — 自动保存最近 5 个历史版本，支持查看、左右对比（Git 风格 diff）、回滚、删除
@@ -16,6 +16,8 @@
 - 文件树搜索 — 侧边栏实时过滤文件名，自动展开匹配目录
 - 全部展开/收起 — 一键展开或收起文件树中的所有文件夹
 - 深色主题 — 响应式布局，桌面端和移动端均可使用
+- 持久化存储 — Cloudflare D1 (Serverless SQLite)，数据安全可靠
+- 三级缓存 — Edge Cache → KV → D1，分享访问毫秒级加载
 
 ## 架构
 
@@ -37,6 +39,19 @@
 
 ## 部署方式
 
+## 创建 D1 数据库
+
+1. Cloudflare 控制台 → 左侧菜单 计算 → 左侧菜单 D1 SQL Database
+2. 点击 Create a database，命名如 `text-disk-db`
+3. 创建成功后记录数据库名称（后续绑定需要）
+
+数据库表结构会在 Worker 首次运行时自动创建（`CREATE TABLE IF NOT EXISTS`），无需手动执行 SQL。
+
+### 创建 KV 命名空间
+
+1. Cloudflare 控制台 → 左侧菜单 计算 → 左侧菜单KV → Create a namespace
+2. 命名如 `SHARE_KV`
+
 ### 部署后端 Worker
 
 1. 打开 Cloudflare Dashboard → Workers 和 Pages → 创建 → 创建 Worker
@@ -46,13 +61,14 @@
    - **KV 命名空间绑定**：变量名称 `SHARE_KV`，选择上面创建的命名空间
 4. 进入 Worker 设置 → 变量 → 环境变量，添加：
 
-| 变量名 | 必填 | 说明 |
-|--------|------|------|
-| `ADMIN_UUID` | 是 | 管理员登录密钥，自行生成一个复杂字符串 |
-| `SESSION_SECRET` | 否 | 会话签名密钥，不填则退化使用 ADMIN_UUID |
-| `TURNSTILE` | 否 | 设为 `"true"` 开启人机验证 |
-| `TURNSTILE_SECRET_KEY` | 否 | 开启 Turnstile 时必填，Turnstile Secret Key |
-| `FRONTEND_URL` | 否 | 前端 Pages 地址，用于分享链接拼接 |
+| 变量名 | 必填 | 说明 | 必要 |
+|--------|------|------|------|
+| `ADMIN_UUID` | 是 | 管理员登录密钥 | 必填 |
+| `SESSION_SECRET` | 否 | 会话签名密钥，不填退化使用 ADMIN_UUID | 否 |
+| `TURNSTILE` | 否 | `"true"` 开启人机验证 | 否 |
+| `TURNSTILE_SITE_KEY` | 否 | 开启 Turnstile 时必填，Turnstile Site Key | 否 |
+| `TURNSTILE_SECRET_KEY` | 否 | 开启 Turnstile 时必填，Turnstile Secret Key | 否 |
+| `FRONTEND_URL` | 否 | 前端 Pages 地址，影响分享链接拼接 | 否 |
 
 5. 点击「保存并部署」
 6. 申请 Turnstile（可选）
