@@ -1,3 +1,4 @@
+// ============= 文本云盘 Worker（基于Cloudflare）=============
 const DEFAULT_FRONTEND_URL = "https://d5s3g5.777777.qzz.io/";
 const ADMIN_COOKIE_MAX_AGE = 3600; //默认1个小时，可按需修改
 const KV_TTL = 60 * 60 * 24 * 7;
@@ -554,6 +555,8 @@ export default {
         return text("已登出", 200, {
           "Set-Cookie": `admin_token=;Path=/;HttpOnly;SameSite=Lax;Secure;Max-Age=0`,
         });
+      if (url.searchParams.get("action") === "get_config")
+        return json({ turnstile_site_key: env.TURNSTILE_SITE_KEY || "" });
       const adminToken = getCookie(request, "admin_token");
       if (!(await verifySessionToken(env, adminToken)))
         return text("未登录", 401);
