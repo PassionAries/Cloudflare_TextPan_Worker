@@ -1,4 +1,4 @@
-**# Text Disk - 轻量文本云盘
+## Text Disk - 轻量文本云盘
 
 基于 Cloudflare 生态的在线文本存储与分享工具，无需服务器。支持文件管理、分享链接、历史版本对比、Turnstile 人机验证。
 
