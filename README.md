@@ -3,7 +3,7 @@
 基于 Cloudflare 生态的在线文本存储与分享工具，无需服务器。支持文件管理、分享链接、历史版本对比、Turnstile 人机验证。
 [<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/40px-YouTube_full-color_icon_%282017%29.svg.png" width="24"> 个人主页啥也没有，点个关注好不好](https://www.youtube.com/@renfeikeji))
 
-![GitHub License](https://img.shields.io/github/license/PassionAries/CF-Text-Cloud?style=flat-square)
+![GitHub License](https://img.shields.io/github/license/PassionAries/Cloudflare_TextPan_Worker?style=flat-square)
 ![Cloudflare Workers](https://img.shields.io/badge/Platform-Cloudflare%20Workers-F38020?style=flat-square&logo=cloudflare)
 ## 核心特性
 
