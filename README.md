@@ -73,6 +73,9 @@
 5. 点击「保存并部署」
 6. 申请 Turnstile（可选）
 访问 [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile) 添加站点，获取 Site Key 和 Secret Key。
+7. SESSION_SECRET的获得方式
+使用电脑的终端运行以下命令就可以获得
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 ### 部署前端 Pages
 
