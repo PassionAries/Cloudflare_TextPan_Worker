@@ -3,7 +3,7 @@
 基于 Cloudflare 生态的在线文本存储与分享工具，无需服务器。支持文件管理、分享链接、历史版本对比、Turnstile 人机验证。
 [<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/40px-YouTube_full-color_icon_%282017%29.svg.png" width="24"> 个人主页啥也没有，点个关注好不好](https://www.youtube.com/@renfeikeji))
 
-![GitHub License](https://img.shields.io/github/license/yourusername/CF-Text-Cloud?style=flat-square)
+![GitHub License](https://img.shields.io/github/license/PassionAries/CF-Text-Cloud?style=flat-square)
 ![Cloudflare Workers](https://img.shields.io/badge/Platform-Cloudflare%20Workers-F38020?style=flat-square&logo=cloudflare)
 ## 核心特性
 
@@ -27,34 +27,13 @@
 | 前端 | 纯静态 HTML 单文件，部署到 Cloudflare Pages |
 | 验证 | Cloudflare Turnstile（可选） |
 
-## CLI部署
+## 📦 部署前准备
 
-### 1. Cloudflare 账号
+1. 注册并登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. 准备一个可用的域名（可选，默认使用 `*.workers.dev` 子域名）！！！免费的可以托管到CF的二级域名一大堆~
+3. 生成一个安全的 `ADMIN_UUID`（不要太简单即可~）
 
-注册 [Cloudflare](https://dash.cloudflare.com/) 账号，开启 Workers 和 Pages 功能。
-
-### 2. 创建 D1 数据库
-
-```bash
-# 安装 wrangler CLI
-npm install -g wrangler
-
-# 登录
-wrangler login
-
-# 创建 D1 数据库
-wrangler d1 create text-disk-db
-```
-
-### 3. 创建 KV 命名空间（推荐）
-
-```bash
-wrangler kv:namespace create SHARE_KV
-```
-
-### 4. 申请 Turnstile（可选）
-
-访问 [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile) 添加站点，获取 Site Key 和 Secret Key。
+---
 
 ## 部署方式
 
@@ -76,6 +55,8 @@ wrangler kv:namespace create SHARE_KV
 | `FRONTEND_URL` | 否 | 前端 Pages 地址，用于分享链接拼接 |
 
 5. 点击「保存并部署」
+6. 申请 Turnstile（可选）
+访问 [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile) 添加站点，获取 Site Key 和 Secret Key。
 
 ### 部署前端 Pages
 
@@ -84,15 +65,6 @@ wrangler kv:namespace create SHARE_KV
 3. 部署完成后，将 Pages 地址填入 Worker 的 `FRONTEND_URL` 环境变量（可选，用于分享链接使用正确域名）
 4. 如需开启 Turnstile，在前端代码中修改 `TURNSTILE_SITE_KEY` 为你的 Site Key
 
-### 本地开发
-
-```bash
-# 启动本地预览
-python3 -m http.server 8000 --directory frontend
-
-# 或使用 wrangler 本地调试 Worker
-wrangler dev
-```
 
 ## 项目结构
 
