@@ -1,7 +1,10 @@
 ## Text Disk - 轻量文本云盘
 
 基于 Cloudflare 生态的在线文本存储与分享工具，无需服务器。支持文件管理、分享链接、历史版本对比、Turnstile 人机验证。
-[image](https://camo.githubusercontent.com/e082bdcf4e05c6ab7b8da5cb238495b356977a9bf761e91510b2c9ac055779ac/68747470733a2f2f696d672e736869656c64732e696f2f62616467652f506c6174666f726d2d436c6f7564666c617265253230576f726b6572732d4633383032303f7374796c653d666c61742d737175617265266c6f676f3d636c6f7564666c617265)
+[<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/09/YouTube_full-color_icon_%282017%29.svg/40px-YouTube_full-color_icon_%282017%29.svg.png" width="24"> 个人主页啥也没有，点个关注好不好](https://www.youtube.com/@renfeikeji))
+
+![GitHub License](https://img.shields.io/github/license/yourusername/CF-Text-Cloud?style=flat-square)
+![Cloudflare Workers](https://img.shields.io/badge/Platform-Cloudflare%20Workers-F38020?style=flat-square&logo=cloudflare)
 ## 核心特性
 
 - 文件管理 — 创建、编辑、重命名、移动、删除文件和文件夹，右键菜单快捷操作
