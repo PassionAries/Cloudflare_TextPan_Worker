@@ -260,6 +260,23 @@ mark.search-highlight { background: var(--yellow); color: #000; border-radius: 2
       <label>自定义 Token（可选，留空自动生成）</label>
       <input id="share-custom-token" placeholder="自定义分享 Token">
     </div>
+    <div class="field">
+      <label>有效期</label>
+      <select id="share-expire" style="width:100%">
+        <option value="0">长期有效</option>
+        <option value="1">1 小时</option>
+        <option value="6">6 小时</option>
+        <option value="24">1 天</option>
+        <option value="168">7 天</option>
+        <option value="720">30 天</option>
+      </select>
+    </div>
+    <div class="field">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <label>当前状态</label>
+        <span id="share-status" style="color:var(--text2);font-size:12px">-</span>
+      </div>
+    </div>
     <div class="actions">
       <button class="btn-cancel" onclick="closeModal('modal-share')">关闭</button>
       <button class="btn-primary" onclick="updateShareToken()">生成 / 更新</button>
@@ -836,16 +853,53 @@ function hideContextMenu() { document.getElementById('context-menu').style.displ
 document.addEventListener('click', hideContextMenu);
 
 // ==================== 分享 ====================
+function setShareStatus(text) {
+  const el = document.getElementById('share-status');
+  if (el) el.textContent = text;
+}
+
+// 根据后端返回的过期时间戳(秒)回填有效期下拉框
+function applyExpireSelection(expireAt) {
+  const sel = document.getElementById('share-expire');
+  if (!expireAt) {
+    sel.value = '0';
+    setShareStatus('长期有效');
+    return;
+  }
+  const remainHours = Math.max(1, Math.round((expireAt - Date.now() / 1000) / 3600));
+  let matched = false;
+  for (const opt of sel.options) {
+    const h = parseInt(opt.value, 10);
+    if (h > 0 && remainHours <= h) { sel.value = opt.value; matched = true; break; }
+  }
+  if (!matched) sel.value = '0';
+  setShareStatus('将于 ' + new Date(expireAt * 1000).toLocaleString('zh-CN') + ' 过期');
+}
+
+// 根据下拉框当前选择刷新状态提示
+function updateShareStatusText() {
+  const h = parseInt(document.getElementById('share-expire').value, 10) || 0;
+  if (h <= 0) { setShareStatus('长期有效'); return; }
+  const exp = Math.floor(Date.now() / 1000) + h * 3600;
+  setShareStatus('将于 ' + new Date(exp * 1000).toLocaleString('zh-CN') + ' 过期');
+}
+
 async function showShareModal() {
   if (!currentFile) return;
   document.getElementById('share-custom-token').value = '';
   document.getElementById('qrcode-wrap').innerHTML = '';
+  setShareStatus('-');
   try {
-    const { text: token } = await apiPost('GET_TOKEN|' + currentFile);
-    if (token && token !== '该文件未生成Token') {
+    const { text } = await apiPost('GET_TOKEN|' + currentFile);
+    if (text && text !== '该文件未生成Token') {
+      const parts = text.split('|');
+      const token = parts[0];
+      const expireAt = parseInt(parts[1], 10) || 0;
+      applyExpireSelection(expireAt);
       updateShareUI(token);
     } else {
       document.getElementById('share-link').value = '尚未生成分享 Token，点击下方按钮生成';
+      setShareStatus('尚未生成分享 Token');
     }
     openModal('modal-share');
   } catch (e) {
@@ -855,9 +909,10 @@ async function showShareModal() {
 }
 
 function updateShareUI(token) {
-  const link = location.origin + location.pathname + 'sub/' + token + '/' + encodeURIComponent(currentFile);
+  const link = location.origin + '/share/' + token + '/' + encodeURIComponent(currentFile);
   document.getElementById('share-link').value = link;
   generateQRCode(link);
+  updateShareStatusText();
 }
 
 function generateQRCode(link) {
@@ -879,8 +934,9 @@ function generateQRCode(link) {
 async function updateShareToken() {
   if (!currentFile) return;
   const customToken = document.getElementById('share-custom-token').value.trim();
+  const expireHours = parseInt(document.getElementById('share-expire').value, 10) || 0;
   try {
-    const { text: token } = await apiPost('FILE_TOKEN|' + currentFile + '|' + customToken);
+    const { text: token } = await apiPost('FILE_TOKEN|' + currentFile + '|' + customToken + '|' + expireHours);
     updateShareUI(token);
     toast('分享 Token 已更新');
   } catch (e) { toast('更新失败: ' + e.message, 'error'); }
