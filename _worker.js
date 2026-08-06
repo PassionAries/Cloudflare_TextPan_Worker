@@ -503,43 +503,46 @@ async function createNewFolder(env, fullPath) {
     .run();
 }
 async function proxyFrontend(frontendUrl, request, ctx) {
-  const cacheKey = new URL(frontendUrl);
-  const cached = await caches.default.match(cacheKey);
-  if (cached)
-    return new Response(cached.body, {
-      headers: {
-        ...cached.headers,
-        "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-        "Content-Type": "text/html;charset=utf-8",
-        "X-Frame-Options": "DENY",
-      },
-    });
+  // 直接回源，不做本地缓存，确保前端更新后立即可见
   const res = await fetch(frontendUrl, { cf: { cacheEverything: true } });
-  const newRes = new Response(res.body, {
+  return new Response(res.body, {
     status: res.status,
     headers: {
       ...res.headers,
-      "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+      "Cache-Control": "no-cache",
       "Content-Type": "text/html;charset=utf-8",
       "X-Frame-Options": "DENY",
     },
   });
-  ctx.waitUntil(caches.default.put(cacheKey, newRes.clone()));
-  return newRes;
 }
 
 export default {
   async fetch(request, env, ctx) {
     ADMIN_UUID = env.ADMIN_UUID || ADMIN_UUID;
     const url = new URL(request.url);
-    let pathname = url.pathname.slice(1);
-    // 兼容旧版前端生成的错误分享链接格式（/adminsub/<token>/... 或 /admin/sub/<token>/...），
-    // 统一规范化为 /sub/<token>/...
-    if (pathname.startsWith("adminsub/")) pathname = "sub/" + pathname.slice("adminsub/".length);
-    else if (pathname.startsWith("admin/sub/")) pathname = pathname.slice("admin/".length);
+    const pathname = url.pathname.slice(1);
+    // 统一分享链接前缀为 /share/<token>/...
+    // 历史格式（/adminsub/...、/admin/sub/...、/sub/...）一律 301 重定向到标准格式
+    const redirectShare = (prefix) =>
+      "/share/" + pathname.slice(prefix.length) + url.search;
+    if (pathname.startsWith("adminsub/"))
+      return new Response(null, {
+        status: 301,
+        headers: { Location: redirectShare("adminsub/") },
+      });
+    if (pathname.startsWith("admin/sub/"))
+      return new Response(null, {
+        status: 301,
+        headers: { Location: redirectShare("admin/sub/") },
+      });
+    if (pathname.startsWith("sub/"))
+      return new Response(null, {
+        status: 301,
+        headers: { Location: redirectShare("sub/") },
+      });
     const parts = pathname.split("/");
     if (!ADMIN_UUID) return text("⚠️ 请设置环境变量 ADMIN_UUID", 400);
-    if (parts[0] === "sub" && parts.length >= 3) {
+    if (parts[0] === "share" && parts.length >= 3) {
       try {
         const token = parts[1];
         const decodedPath = decodeURIComponent(parts.slice(2).join("/"));
@@ -569,8 +572,8 @@ export default {
         return text("访问失败：" + e.message, 400);
       }
     }
-    if (parts[0] === "sub")
-      return text("格式错误：/sub/<Token>/<路径>/<文件名>", 400);
+    if (parts[0] === "share")
+      return text("格式错误：/share/<Token>/<路径>/<文件名>", 400);
     await initDB(env);
     if (pathname === "admin" || pathname.startsWith("admin/")) {
       if (
