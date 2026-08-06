@@ -159,11 +159,19 @@ async function verifyTurnstile(env, token, ip) {
 async function initDB(env) {
   if (dbInitialized) return;
   await env.DB.prepare(
-    `CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY,is_folder INTEGER NOT NULL,content TEXT,token TEXT,created_at INTEGER DEFAULT(unixepoch()),updated_at INTEGER DEFAULT(unixepoch()));CREATE INDEX IF NOT EXISTS idx_path_prefix ON files(path);`,
+    `CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY,is_folder INTEGER NOT NULL,content TEXT,token TEXT,share_expires_at INTEGER,created_at INTEGER DEFAULT(unixepoch()),updated_at INTEGER DEFAULT(unixepoch()));CREATE INDEX IF NOT EXISTS idx_path_prefix ON files(path);`,
   ).run();
   await env.DB.prepare(
     `CREATE TABLE IF NOT EXISTS file_history(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL,content TEXT,saved_at INTEGER DEFAULT(unixepoch()));CREATE INDEX IF NOT EXISTS idx_history_path ON file_history(path);`,
   ).run();
+  // 兼容旧版表结构：为已存在的 files 表补上分享过期时间列
+  try {
+    await env.DB.prepare(
+      "ALTER TABLE files ADD COLUMN share_expires_at INTEGER",
+    ).run();
+  } catch (e) {
+    // 列已存在时 D1 会报错，忽略即可
+  }
   dbInitialized = true;
 }
 function getCacheKey(request, token, path) {
@@ -202,23 +210,33 @@ async function getKVKey(token, path) {
     .slice(0, 32);
   return `share_${token}_${hex}`;
 }
-async function setShareCache(env, token, path, content, oldToken) {
+async function setShareCache(env, token, path, content, oldToken, expireAt) {
   if (!env.SHARE_KV || !token) return;
-  const opts = KV_TTL > 0 ? { expirationTtl: KV_TTL } : {};
+  let ttl = KV_TTL;
+  if (expireAt) {
+    const remain = expireAt - Math.floor(Date.now() / 1000);
+    ttl = Math.max(1, Math.min(remain, KV_TTL));
+  }
+  const opts = KV_TTL > 0 ? { expirationTtl: ttl } : {};
   await env.SHARE_KV.put(
     await getKVKey(token, path),
-    JSON.stringify({ token, content }),
+    JSON.stringify({ token, content, expireAt: expireAt || 0 }),
     opts,
   );
   if (oldToken && oldToken !== token)
     await env.SHARE_KV.delete(await getKVKey(oldToken, path));
 }
-async function updateShareCache(env, token, path, content) {
+async function updateShareCache(env, token, path, content, expireAt) {
   if (!env.SHARE_KV || !token) return;
+  let ttl = KV_TTL;
+  if (expireAt) {
+    const remain = expireAt - Math.floor(Date.now() / 1000);
+    ttl = Math.max(1, Math.min(remain, KV_TTL));
+  }
   await env.SHARE_KV.put(
     await getKVKey(token, path),
-    JSON.stringify({ token, content }),
-    KV_TTL > 0 ? { expirationTtl: KV_TTL } : {},
+    JSON.stringify({ token, content, expireAt: expireAt || 0 }),
+    KV_TTL > 0 ? { expirationTtl: ttl } : {},
   );
 }
 async function deleteShareCache(env, token, path) {
@@ -231,7 +249,9 @@ async function getShareCache(env, token, path) {
   if (!raw) return null;
   try {
     const o = JSON.parse(raw);
-    return o.token === token ? (o.content ?? "") : null;
+    if (o.token !== token) return null;
+    // 兼容旧版 KV 值（无 expireAt 字段）：视为长期有效
+    return { content: o.content ?? "", expireAt: o.expireAt || 0 };
   } catch {
     return null;
   }
@@ -273,7 +293,7 @@ async function pushHistory(env, path, content) {
 async function saveFileContent(env, filename, content, token = null) {
   if (isFolder(filename)) return null;
   const row = await env.DB.prepare(
-    "SELECT token, content FROM files WHERE path = ?",
+    "SELECT token, content, share_expires_at FROM files WHERE path = ?",
   )
     .bind(filename)
     .all();
@@ -288,7 +308,14 @@ async function saveFileContent(env, filename, content, token = null) {
   if (res.changes === 0) throw new Error("文件不存在，请先创建文件");
   // 内容有变化时才写入历史版本，避免无意义的重复快照
   if (oldContent !== content) await pushHistory(env, filename, oldContent);
-  if (token) await updateShareCache(env, token, filename, content);
+  if (token)
+    await updateShareCache(
+      env,
+      token,
+      filename,
+      content,
+      row.results[0].share_expires_at || 0,
+    );
   return token;
 }
 
@@ -423,7 +450,16 @@ async function getFileToken(env, filename) {
     ).results[0]?.token || ""
   );
 }
-async function saveFileToken(env, filename, token) {
+async function getShareExpireAt(env, filename) {
+  return (
+    (
+      await env.DB.prepare("SELECT share_expires_at FROM files WHERE path = ?")
+        .bind(filename)
+        .all()
+    ).results[0]?.share_expires_at || 0
+  );
+}
+async function saveFileToken(env, filename, token, expiresAt = null) {
   const old =
     (
       await env.DB.prepare("SELECT token FROM files WHERE path = ?")
@@ -431,15 +467,15 @@ async function saveFileToken(env, filename, token) {
         .all()
     ).results[0]?.token || null;
   const res = await env.DB.prepare(
-    "UPDATE files SET token = ?, updated_at = unixepoch() WHERE path = ?",
+    "UPDATE files SET token = ?, share_expires_at = ?, updated_at = unixepoch() WHERE path = ?",
   )
-    .bind(token, filename)
+    .bind(token, expiresAt, filename)
     .run();
   if (res.changes === 0) {
     await env.DB.prepare(
-      "INSERT INTO files (path, is_folder, content, token, created_at, updated_at) VALUES (?, 0, '', ?, unixepoch(), unixepoch())",
+      "INSERT INTO files (path, is_folder, content, token, share_expires_at, created_at, updated_at) VALUES (?, 0, '', ?, ?, unixepoch(), unixepoch())",
     )
-      .bind(filename, token)
+      .bind(filename, token, expiresAt)
       .run();
   }
   await setShareCache(
@@ -448,6 +484,7 @@ async function saveFileToken(env, filename, token) {
     filename,
     await getFileContent(env, filename),
     old,
+    expiresAt,
   );
   return { oldToken: old, newToken: token };
 }
@@ -495,7 +532,11 @@ export default {
   async fetch(request, env, ctx) {
     ADMIN_UUID = env.ADMIN_UUID || ADMIN_UUID;
     const url = new URL(request.url);
-    const pathname = url.pathname.slice(1);
+    let pathname = url.pathname.slice(1);
+    // 兼容旧版前端生成的错误分享链接格式（/adminsub/<token>/... 或 /admin/sub/<token>/...），
+    // 统一规范化为 /sub/<token>/...
+    if (pathname.startsWith("adminsub/")) pathname = "sub/" + pathname.slice("adminsub/".length);
+    else if (pathname.startsWith("admin/sub/")) pathname = pathname.slice("admin/".length);
     const parts = pathname.split("/");
     if (!ADMIN_UUID) return text("⚠️ 请设置环境变量 ADMIN_UUID", 400);
     if (parts[0] === "sub" && parts.length >= 3) {
@@ -504,17 +545,22 @@ export default {
         const decodedPath = decodeURIComponent(parts.slice(2).join("/"));
         const kv = await getShareCache(env, token, decodedPath);
         if (kv !== null) {
-          ctx.waitUntil(putCFCache(request, token, decodedPath, kv));
-          return text(kv);
+          if (kv.expireAt && Math.floor(Date.now() / 1000) > kv.expireAt)
+            return text("分享链接已过期", 410);
+          ctx.waitUntil(putCFCache(request, token, decodedPath, kv.content));
+          return text(kv.content);
         }
         await initDB(env);
         const saved = await getFileToken(env, decodedPath);
         if (!saved || !timingSafeEqual(token, saved))
           return text("Token无效或文件不存在", 403);
+        const expiresAt = await getShareExpireAt(env, decodedPath);
+        if (expiresAt && Math.floor(Date.now() / 1000) > expiresAt)
+          return text("分享链接已过期", 410);
         const content = await getFileContent(env, decodedPath);
         ctx.waitUntil(
           Promise.all([
-            updateShareCache(env, saved, decodedPath, content),
+            updateShareCache(env, saved, decodedPath, content, expiresAt),
             putCFCache(request, token, decodedPath, content),
           ]),
         );
@@ -563,12 +609,19 @@ export default {
       if (url.searchParams.get("action") === "get_tree")
         return json(await getFileList(env));
       if (body.startsWith("FILE_TOKEN|")) {
-        const [_, filename, custom] = body.split("|");
+        // 格式：FILE_TOKEN|<文件名>|<自定义token，可空>|<有效期小时数，0或空=长期有效>
+        const [_, filename, custom, expire] = body.split("|");
         if (!filename) return text("缺少文件名", 400);
+        const expireHours = parseInt(expire, 10);
+        const expiresAt =
+          Number.isFinite(expireHours) && expireHours > 0
+            ? Math.floor(Date.now() / 1000) + expireHours * 3600
+            : null;
         const result = await saveFileToken(
           env,
           filename,
           custom?.trim() || uuidv4(),
+          expiresAt,
         );
         if (result.oldToken && result.oldToken !== result.newToken) {
           ctx.waitUntil(purgeCFCache(request, result.oldToken, filename));
@@ -576,9 +629,12 @@ export default {
         return text(await getFileToken(env, filename));
       }
       if (body.startsWith("GET_TOKEN|")) {
+        // 返回格式：<token>|<过期时间戳(秒)，0=长期有效>；未生成 token 时返回提示文案
         const [_, filename] = body.split("|");
         if (!filename) return text("缺少文件名", 400);
-        return text((await getFileToken(env, filename)) || "该文件未生成Token");
+        const token = await getFileToken(env, filename);
+        if (!token) return text("该文件未生成Token");
+        return text(token + "|" + (await getShareExpireAt(env, filename)));
       }
       if (body.startsWith("FILE_OP|")) {
         try {
